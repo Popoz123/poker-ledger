@@ -76,6 +76,17 @@
         .modal {
             background: var(--surface); padding: 20px; border-radius: 10px; width: 90%; max-width: 400px;
         }
+        #cashout-section { scroll-padding-bottom: 45vh; }
+        .cashout-input { scroll-margin-bottom: 45vh; }
+        .notification {
+            display: none; position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+            background: #2e7d32; color: #fff; padding: 14px 18px; border-radius: 6px;
+            width: min(90%, 420px); text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.35); z-index: 110;
+        }
+        @media (max-width: 600px) {
+            body { align-items: flex-start; min-height: 100vh; }
+            #cashout-section { padding-bottom: 45vh; }
+        }
     </style>
 </head>
 <body>
@@ -110,6 +121,9 @@
     <div id="game-section" class="section">
         <h2>3. Game in Progress</h2>
         <div id="active-players"></div>
+        <div id="cashed-out-players"></div>
+        <input type="text" id="game-player-name" placeholder="Enter player name">
+        <button onclick="addPlayerDuringGame()">Add Player</button>
         <button class="danger-btn" onclick="endGame()" style="margin-top: 30px;">End Game & Cash Out</button>
     </div>
 
@@ -154,12 +168,26 @@
     </div>
 </div>
 
+<div id="cashout-modal" class="modal-overlay">
+    <div class="modal">
+        <h2 id="cashout-title">Cash Out Player</h2>
+        <p id="cashout-description"></p>
+        <label>Final Stack (Chips)</label>
+        <input type="number" id="early-cashout-stack" inputmode="numeric" min="0" placeholder="0">
+        <button onclick="confirmCashOut()">Confirm Cash Out</button>
+        <button class="secondary-btn" onclick="closeCashoutModal()">Cancel</button>
+    </div>
+</div>
+
+<div id="notification" class="notification" role="status"></div>
+
 <script>
     let players = {};
     let moneyPerChip = 0;
     let diffMoney = 0;
     let diffChips = 0;
     let activeRebuyPlayer = null;
+    let activeCashoutPlayer = null;
 
     function switchSection(sectionId) {
         document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
@@ -193,7 +221,7 @@
         }
 
         // Added earlyCashout to track chips given to other players
-        players[name] = { invested: players['standardMoney'], cashedOut: 0.0, earlyCashout: 0.0 };
+        players[name] = { invested: players['standardMoney'], cashedOut: 0.0, cashedOutChips: 0, earlyCashout: 0.0, active: true };
         
         const list = document.getElementById('player-list');
         list.innerHTML += `<div class="list-item"><span>${name}</span> <span>In for $${players['standardMoney'].toFixed(2)}</span></div>`;
@@ -201,7 +229,7 @@
     }
 
     function startGame() {
-        const playerNames = Object.keys(players).filter(k => k !== 'standardMoney' && k !== 'standardChips');
+        const playerNames = Object.keys(players).filter(k => k !== 'standardMoney' && k !== 'standardChips' && players[k].active !== false);
         if (playerNames.length < 2) {
             alert("You need at least 2 players to start.");
             return;
@@ -213,8 +241,11 @@
 
     function renderActivePlayers() {
         const list = document.getElementById('active-players');
+        const cashedOutList = document.getElementById('cashed-out-players');
         list.innerHTML = '';
-        const playerNames = Object.keys(players).filter(k => k !== 'standardMoney' && k !== 'standardChips');
+        cashedOutList.innerHTML = '';
+        const playerNames = Object.keys(players).filter(k => k !== 'standardMoney' && k !== 'standardChips' && players[k].active !== false);
+        const cashedOutNames = Object.keys(players).filter(k => k !== 'standardMoney' && k !== 'standardChips' && players[k].active === false);
         
         playerNames.forEach(name => {
             let earlyText = players[name].earlyCashout > 0 ? `<br><small style="color:var(--primary)">Owed for chips given: $${players[name].earlyCashout.toFixed(2)}</small>` : '';
@@ -225,9 +256,75 @@
                         <small>Invested: $${players[name].invested.toFixed(2)}</small>
                         ${earlyText}
                     </div>
-                    <button class="rebuy-btn" onclick="openRebuyModal('${name}')">Rebuy</button>
+                    <div>
+                        <button class="rebuy-btn" onclick="openRebuyModal('${name}')">Rebuy</button>
+                        <button class="rebuy-btn secondary-btn" onclick="openCashoutModal('${name}')">Cash Out</button>
+                    </div>
                 </div>`;
         });
+
+        if (cashedOutNames.length > 0) {
+            cashedOutList.innerHTML = '<h3>Already Cashed Out</h3>';
+            cashedOutNames.forEach(name => {
+                cashedOutList.innerHTML += `<div class="list-item"><span>${name}</span><span>${Math.round(players[name].cashedOutChips)} chips</span></div>`;
+            });
+        }
+    }
+
+    function addPlayerDuringGame() {
+        const input = document.getElementById('game-player-name');
+        const name = input.value.trim();
+
+        if (!name) return;
+        if (players[name]) {
+            alert(name + " is already registered.");
+            return;
+        }
+
+        players[name] = { invested: players['standardMoney'], cashedOut: 0.0, cashedOutChips: 0, earlyCashout: 0.0, active: true };
+        input.value = '';
+        renderActivePlayers();
+    }
+
+    function openCashoutModal(name) {
+        activeCashoutPlayer = name;
+        document.getElementById('cashout-title').innerText = `Cash Out ${name}`;
+        document.getElementById('cashout-description').innerText = 'Record the chips this player is taking out of the game.';
+        const input = document.getElementById('early-cashout-stack');
+        input.value = '';
+        document.getElementById('cashout-modal').style.display = 'flex';
+        input.focus();
+    }
+
+    function closeCashoutModal() {
+        document.getElementById('cashout-modal').style.display = 'none';
+        activeCashoutPlayer = null;
+    }
+
+    function confirmCashOut() {
+        const name = activeCashoutPlayer;
+        const stack = parseFloat(document.getElementById('early-cashout-stack').value);
+        if (isNaN(stack) || stack < 0) {
+            alert("Please enter a valid non-negative chip count.");
+            return;
+        }
+
+        players[name].cashedOutChips = stack;
+        players[name].cashedOut = stack * moneyPerChip;
+        players[name].active = false;
+        closeCashoutModal();
+        renderActivePlayers();
+        showNotification(`${name} cashed out with ${Math.round(stack)} chips ($${players[name].cashedOut.toFixed(2)}).`);
+    }
+
+    function showNotification(message) {
+        const notification = document.getElementById('notification');
+        notification.innerText = message;
+        notification.style.display = 'block';
+        window.clearTimeout(showNotification.timeout);
+        showNotification.timeout = window.setTimeout(() => {
+            notification.style.display = 'none';
+        }, 4500);
     }
 
     function openRebuyModal(name) {
@@ -279,13 +376,18 @@
     function endGame() {
         const list = document.getElementById('cashout-inputs');
         list.innerHTML = '';
-        const playerNames = Object.keys(players).filter(k => k !== 'standardMoney' && k !== 'standardChips');
+        const playerNames = Object.keys(players).filter(k => k !== 'standardMoney' && k !== 'standardChips' && players[k].active !== false);
         
         playerNames.forEach(name => {
             list.innerHTML += `
                 <label>${name}'s Final Stack (Chips)</label>
-                <input type="number" id="cashout-${name}" inputmode="numeric" placeholder="0">
+                <input class="cashout-input" type="number" id="cashout-${name}" inputmode="numeric" placeholder="0" min="0">
             `;
+        });
+        document.querySelectorAll('.cashout-input').forEach(input => {
+            input.addEventListener('focus', () => {
+                window.setTimeout(() => input.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
+            });
         });
         switchSection('cashout-section');
     }
@@ -299,13 +401,14 @@
         const playerNames = Object.keys(players).filter(k => k !== 'standardMoney' && k !== 'standardChips');
         
         for (let name of playerNames) {
-            const inputVal = document.getElementById(`cashout-${name}`).value;
-            const chips = parseFloat(inputVal) || 0;
-            const money = chips * moneyPerChip;
-            
-            players[name].cashedOut = money;
-            totalCashedOutChips += chips;
-            totalCashedOutMoney += money;
+            if (players[name].active !== false) {
+                const inputVal = document.getElementById(`cashout-${name}`).value;
+                players[name].cashedOutChips = parseFloat(inputVal) || 0;
+                players[name].cashedOut = players[name].cashedOutChips * moneyPerChip;
+            }
+
+            totalCashedOutChips += players[name].cashedOutChips;
+            totalCashedOutMoney += players[name].cashedOut;
             totalEarlyCashoutMoney += players[name].earlyCashout;
             totalInvested += players[name].invested;
         }
