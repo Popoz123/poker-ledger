@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hold'em Ledger</title>
+    <style>
+        :root {
+            --bg: #121212;
+            --surface: #1e1e1e;
+            --primary: #bb86fc;
+            --text: #ffffff;
+            --error: #cf6679;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 500px;
+            background-color: var(--surface);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        h1, h2, h3 { text-align: center; }
+        .section { display: none; }
+        .active { display: block; }
+        input, select {
+            width: calc(100% - 22px);
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border: 1px solid #555;
+            background: #333;
+            color: white;
+            font-size: 16px;
+        }
+        select { width: 100%; }
+        button {
+            width: 100%;
+            padding: 15px;
+            margin: 10px 0;
+            border: none;
+            border-radius: 5px;
+            background-color: var(--primary);
+            color: #000;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        button:active { opacity: 0.8; }
+        .secondary-btn { background-color: #555; color: #fff; }
+        .danger-btn { background-color: var(--error); color: #000; }
+        .list-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid #333;
+        }
+        .rebuy-btn { width: auto; padding: 8px 15px; margin: 0; }
+        .error-box { border: 2px solid var(--error); padding: 15px; border-radius: 5px; text-align: center; margin-bottom: 15px;}
+        
+        /* Modal Styles */
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); justify-content: center; align-items: center; z-index: 100;
+        }
+        .modal {
+            background: var(--surface); padding: 20px; border-radius: 10px; width: 90%; max-width: 400px;
+        }
+        #cashout-section { scroll-padding-bottom: 45vh; }
+        .cashout-input { scroll-margin-bottom: 45vh; }
+        .notification {
+            display: none; position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+            background: #2e7d32; color: #fff; padding: 14px 18px; border-radius: 6px;
+            width: min(90%, 420px); text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.35); z-index: 110;
+        }
+        @media (max-width: 600px) {
+            body { align-items: flex-start; min-height: 100vh; }
+            #cashout-section { padding-bottom: 45vh; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Hold'em Ledger</h1>
+    
+    <!-- Phase 1: Setup -->
+    <div id="setup-section" class="section active">
+        <h2>1. Game Setup</h2>
+        <label>Standard Buy-in Amount ($)</label>
+        <input type="number" id="buyin-money" inputmode="decimal" placeholder="e.g. 20">
+        
+        <label>Chips Received for Buy-in</label>
+        <input type="number" id="buyin-chips" inputmode="numeric" placeholder="e.g. 2000">
+        
+        <button onclick="startSetup()">Continue</button>
+    </div>
+
+    <!-- Phase 2: Registration -->
+    <div id="reg-section" class="section">
+        <h2>2. Registration</h2>
+        <div id="player-list"></div>
+        
+        <input type="text" id="player-name" placeholder="Enter player name">
+        <button onclick="addPlayer()">Add Player</button>
+        
+        <button class="secondary-btn" onclick="startGame()" style="margin-top: 30px;">Start Game</button>
+    </div>
+
+    <!-- Phase 3: Game in Progress -->
+    <div id="game-section" class="section">
+        <h2>3. Game in Progress</h2>
+        <div id="active-players"></div>
+        <div id="cashed-out-players"></div>
+        <input type="text" id="game-player-name" placeholder="Enter player name">
+        <button onclick="addPlayerDuringGame()">Add Player</button>
+        <button class="danger-btn" onclick="endGame()" style="margin-top: 30px;">End Game & Cash Out</button>
+    </div>
+
+    <!-- Phase 4: Cash Out -->
+    <div id="cashout-section" class="section">
+        <h2>4. Final Chip Stacks</h2>
+        <p style="text-align: center; color: #aaa;">Enter the final stack for each player IN CHIPS.</p>
+        <div id="cashout-inputs"></div>
+        <button onclick="verifyCashout()">Verify Ledger</button>
+    </div>
+
+    <!-- Phase 5: Error Resolution -->
+    <div id="error-section" class="section">
+        <div class="error-box">
+            <h2>🛑 Ledger Mismatch!</h2>
+            <p id="error-details"></p>
+        </div>
+        <button class="secondary-btn" onclick="resolveError('B')">Recount Chips (Recommended)</button>
+        <button class="danger-btn" onclick="resolveError('A')">Adjust Biggest Winner's Payout</button>
+    </div>
+
+    <!-- Phase 6: Payouts -->
+    <div id="payout-section" class="section">
+        <h2>5. Final Payouts</h2>
+        <div id="payout-list" style="font-size: 1.2em; text-align: center; line-height: 1.8;"></div>
+        <button class="secondary-btn" onclick="location.reload()" style="margin-top: 30px;">Start New Session</button>
+    </div>
+</div>
+
+<!-- Rebuy Modal -->
+<div id="rebuy-modal" class="modal-overlay">
+    <div class="modal">
+        <h2 id="rebuy-title">Rebuy</h2>
+        <label>Amount in Dollars ($)</label>
+        <input type="number" id="rebuy-amount" inputmode="decimal" placeholder="0">
+        
+        <label>Where are the chips coming from?</label>
+        <select id="rebuy-source"></select>
+        
+        <button onclick="confirmRebuy()">Confirm Rebuy</button>
+        <button class="secondary-btn" onclick="closeRebuyModal()">Cancel</button>
+    </div>
+</div>
+
+<div id="cashout-modal" class="modal-overlay">
+    <div class="modal">
+        <h2 id="cashout-title">Cash Out Player</h2>
+        <p id="cashout-description"></p>
+        <label>Final Stack (Chips)</label>
+        <input type="number" id="early-cashout-stack" inputmode="numeric" min="0" placeholder="0">
+        <button onclick="confirmCashOut()">Confirm Cash Out</button>
+        <button class="secondary-btn" onclick="closeCashoutModal()">Cancel</button>
+    </div>
+</div>
+
+<div id="notification" class="notification" role="status"></div>
+
+<script>
+    let players = {};
+    let moneyPerChip = 0;
+    let diffMoney = 0;
+    let diffChips = 0;
+    let activeRebuyPlayer = null;
+    let activeCashoutPlayer = null;
+
+    function switchSection(sectionId) {
+        document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
+        document.getElementById(sectionId).classList.add('active');
+    }
+
+    function startSetup() {
+        const money = parseFloat(document.getElementById('buyin-money').value);
+        const chips = parseFloat(document.getElementById('buyin-chips').value);
+        
+        if (isNaN(money) || isNaN(chips) || money <= 0 || chips <= 0) {
+            alert("Please enter valid positive numbers for money and chips.");
+            return;
+        }
+        
+        moneyPerChip = money / chips;
+        players['standardMoney'] = money; 
+        players['standardChips'] = chips;
+        
+        switchSection('reg-section');
+    }
+
+    function addPlayer() {
+        const input = document.getElementById('player-name');
+        const name = input.value.trim();
+        
+        if (!name) return;
+        if (players[name]) {
+            alert(name + " is already registered.");
+            return;
+        }
+
+        // Added earlyCashout to track chips given to other players
+        players[name] = { invested: players['standardMoney'], cashedOut: 0.0, cashedOutChips: 0, earlyCashout: 0.0, active: true };
+        
+        const list = document.getElementById('player-list');
+        list.innerHTML += `<div class="list-item"><span>${name}</span> <span>In for $${players['standardMoney'].toFixed(2)}</span></div>`;
+        input.value = '';
+    }
+
+    function startGame() {
+        const playerNames = Object.keys(players).filter(k => k !== 'standardMoney' && k !== 'standardChips' && players[k].active !== false);
+        if (playerNames.length < 2) {
+            alert("You need at least 2 players to start.");
+            return;
+        }
+
+        renderActivePlayers();
+        switchSection('game-section');
+    }
+
+    function renderActivePlayers() {
+        const list = document.getElementById('active-players');
+        const cashedOutList = document.getElementById('cashed-out-players');
+        list.innerHTML = '';
+        cashedOutList.innerHTML = '';
+        const playerNames = Object.keys(players).filter(k => k !== 'standardMoney' && k !== 'standardChips' && players[k].active !== false);
+        const cashedOutNames = Object.keys(players).filter(k => k !== 'standardMoney' && k !== 'standardChips' && players[k].active === false);
+        
+        playerNames.forEach(name => {
+            let earlyText = players[name].earlyCashout > 0 ? `<br><small style="color:var(--primary)">Owed for chips given: $${players[name].earlyCashout.toFixed(2)}</small>` : '';
+            list.innerHTML += `
+                <div class="list-item">
+                    <div>
+                        <strong>${name}</strong><br>
+                        <small>Invested: $${players[name].invested.toFixed(2)}</small>
+                        ${earlyText}
+                    </div>
+                    <div>
+                        <button class="rebuy-btn" onclick="openRebuyModal('${name}')">Rebuy</button>
+                        <button class="rebuy-btn secondary-btn" onclick="openCashoutModal('${name}')">Cash Out</button>
+                    </div>
+                </div>`;
+        });
+
+        if (cashedOutNames.length > 0) {
+            cashedOutList.innerHTML = '<h3>Already Cashed Out</h3>';
+            cashedOutNames.forEach(name => {
+                cashedOutList.innerHTML += `<div class="list-item"><span>${name}</span><span>${Math.round(players[name].cashedOutChips)} chips</span></div>`;
+            });
+        }
+    }
+
+    function addPlayerDuringGame() {
+        const input = document.getElementById('game-player-name');
+        const name = input.value.trim();
+
+        if (!name) return;
+        if (players[name]) {
+            alert(name + " is already registered.");
+            return;
+        }
+
+        players[name] = { invested: players['standardMoney'], cashedOut: 0.0, cashedOutChips: 0, earlyCashout: 0.0, active: true };
+        input.value = '';
+        renderActivePlayers();
+    }
+
+    function openCashoutModal(name) {
+        activeCashoutPlayer = name;
+        document.getElementById('cashout-title').innerText = `Cash Out ${name}`;
+        document.getElementById('cashout-description').innerText = 'Record the chips this player is taking out of the game.';
+        const input = document.getElementById('early-cashout-stack');
+        input.value = '';
+        document.getElementById('cashout-modal').style.display = 'flex';
+        input.focus();
+    }
+
+    function closeCashoutModal() {
+        document.getElementById('cashout-modal').style.display = 'none';
+        activeCashoutPlayer = null;
+    }
+
+    function confirmCashOut() {
+        const name = activeCashoutPlayer;
+        const stack = parseFloat(document.getElementById('early-cashout-stack').value);
+        if (isNaN(stack) || stack < 0) {
+            alert("Please enter a valid non-negative chip count.");
+            return;
+        }
+
+        players[name].cashedOutChips = stack;
+        players[name].cashedOut = stack * moneyPerChip;
+        players[name].active = false;
+        closeCashoutModal();
+        renderActivePlayers();
+        showNotification(`${name} cashed out with ${Math.round(stack)} chips ($${players[name].cashedOut.toFixed(2)}).`);
+    }
+
+    function showNotification(message) {
+        const notification = document.getElementById('notification');
+        notification.innerText = message;
+        notification.style.display = 'block';
+        window.clearTimeout(showNotification.timeout);
+        showNotification.timeout = window.setTimeout(() => {
+            notification.style.display = 'none';
+        }, 4500);
+    }
+
+    function openRebuyModal(name) {
+        activeRebuyPlayer = name;
+        document.getElementById('rebuy-title').innerText = `Rebuy for ${name}`;
+        document.getElementById('rebuy-amount').value = '';
+        
+        const sourceSelect = document.getElementById('rebuy-source');
+        sourceSelect.innerHTML = `<option value="bank">Bank / Dealer Box</option>`;
+        
+        const playerNames = Object.keys(players).filter(k => k !== 'standardMoney' && k !== 'standardChips' && k !== name);
+        playerNames.forEach(p => {
+            sourceSelect.innerHTML += `<option value="${p}">${p}'s Stack</option>`;
+        });
+        
+        document.getElementById('rebuy-modal').style.display = 'flex';
+    }
+
+    function closeRebuyModal() {
+        document.getElementById('rebuy-modal').style.display = 'none';
+        activeRebuyPlayer = null;
+    }
+
+    function confirmRebuy() {
+        const amount = parseFloat(document.getElementById('rebuy-amount').value);
+        if (isNaN(amount) || amount <= 0) {
+            alert("Invalid amount.");
+            return;
+        }
+
+        const source = document.getElementById('rebuy-source').value;
+        const chipsGiven = amount / moneyPerChip;
+
+        // The receiver owes more to the pot
+        players[activeRebuyPlayer].invested += amount;
+
+        if (source === 'bank') {
+            alert(`Hand ${activeRebuyPlayer} ${Math.round(chipsGiven)} chips from the Bank.`);
+        } else {
+            // The provider is owed money from the pot for the chips they gave up
+            players[source].earlyCashout += amount;
+            alert(`${source} needs to hand ${activeRebuyPlayer} ${Math.round(chipsGiven)} chips from their stack.\n\n(Do not exchange real cash! The app will settle this at the end.)`);
+        }
+
+        closeRebuyModal();
+        renderActivePlayers();
+    }
+
+    function endGame() {
+        const list = document.getElementById('cashout-inputs');
+        list.innerHTML = '';
+        const playerNames = Object.keys(players).filter(k => k !== 'standardMoney' && k !== 'standardChips' && players[k].active !== false);
+        
+        playerNames.forEach(name => {
+            list.innerHTML += `
+                <label>${name}'s Final Stack (Chips)</label>
+                <input class="cashout-input" type="number" id="cashout-${name}" inputmode="numeric" placeholder="0" min="0">
+            `;
+        });
+        document.querySelectorAll('.cashout-input').forEach(input => {
+            input.addEventListener('focus', () => {
+                window.setTimeout(() => input.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
+            });
+        });
+        switchSection('cashout-section');
+    }
+
+    function verifyCashout() {
+        let totalInvested = 0;
+        let totalCashedOutChips = 0;
+        let totalCashedOutMoney = 0;
+        let totalEarlyCashoutMoney = 0;
+        
+        const playerNames = Object.keys(players).filter(k => k !== 'standardMoney' && k !== 'standardChips');
+        
+        for (let name of playerNames) {
+            if (players[name].active !== false) {
+                const inputVal = document.getElementById(`cashout-${name}`).value;
+                players[name].cashedOutChips = parseFloat(inputVal) || 0;
+                players[name].cashedOut = players[name].cashedOutChips * moneyPerChip;
+            }
+
+            totalCashedOutChips += players[name].cashedOutChips;
+            totalCashedOutMoney += players[name].cashedOut;
+            totalEarlyCashoutMoney += players[name].earlyCashout;
+            totalInvested += players[name].invested;
+        }
+
+        // We factor in early cashouts (player-to-player transfers) to the ledger balance
+        diffMoney = totalInvested - (totalCashedOutMoney + totalEarlyCashoutMoney);
+        diffChips = (totalInvested / moneyPerChip) - (totalCashedOutChips + (totalEarlyCashoutMoney / moneyPerChip));
+
+        if (Math.abs(diffMoney) > 0.01) {
+            let msg = `Total cash invested: $${totalInvested.toFixed(2)}<br>`;
+            msg += `Total chips on table: ${Math.round(totalCashedOutChips)} (Worth $${totalCashedOutMoney.toFixed(2)})<br>`;
+            if (totalEarlyCashoutMoney > 0) {
+                msg += `Chips transferred between players: ${Math.round(totalEarlyCashoutMoney / moneyPerChip)} (Worth $${totalEarlyCashoutMoney.toFixed(2)})<br>`;
+            }
+            msg += `<br>`;
+            
+            if (diffMoney > 0) {
+                msg += `<strong>Missing:</strong> ${Math.round(diffChips)} chips ($${diffMoney.toFixed(2)})`;
+            } else {
+                msg += `<strong>Extra:</strong> ${Math.round(Math.abs(diffChips))} chips ($${Math.abs(diffMoney).toFixed(2)})`;
+            }
+            
+            document.getElementById('error-details').innerHTML = msg;
+            switchSection('error-section');
+        } else {
+            calculatePayouts();
+        }
+    }
+
+    function resolveError(choice) {
+        if (choice === 'B') {
+            switchSection('cashout-section');
+            return;
+        }
+
+        if (choice === 'A') {
+            let biggestWinner = null;
+            let maxProfit = -Infinity;
+            const playerNames = Object.keys(players).filter(k => k !== 'standardMoney' && k !== 'standardChips');
+            
+            playerNames.forEach(name => {
+                let profit = (players[name].cashedOut + players[name].earlyCashout) - players[name].invested;
+                if (profit > maxProfit) {
+                    maxProfit = profit;
+                    biggestWinner = name;
+                }
+            });
+
+            players[biggestWinner].cashedOut += diffMoney;
+            alert(`Adjusted: Applied $${diffMoney.toFixed(2)} adjustment to ${biggestWinner}'s payout.`);
+            calculatePayouts();
+        }
+    }
+
+    function calculatePayouts() {
+        const playerNames = Object.keys(players).filter(k => k !== 'standardMoney' && k !== 'standardChips');
+        let winners = {};
+        let losers = {};
+
+        playerNames.forEach(name => {
+            // Profit = (Final Stack + Chips Given Away) - Total Invested
+            let balance = (players[name].cashedOut + players[name].earlyCashout) - players[name].invested;
+            if (balance > 0.01) winners[name] = balance;
+            else if (balance < -0.01) losers[name] = -balance;
+        });
+
+        const payoutList = document.getElementById('payout-list');
+        payoutList.innerHTML = '';
+        let transactions = 0;
+
+        for (let loser in losers) {
+            for (let winner in winners) {
+                if (losers[loser] < 0.01) break;
+                if (winners[winner] < 0.01) continue;
+
+                let amount = Math.min(losers[loser], winners[winner]);
+                payoutList.innerHTML += `<div><strong>${loser}</strong> pays <strong>${winner}</strong>: $${amount.toFixed(2)}</div>`;
+                
+                losers[loser] -= amount;
+                winners[winner] -= amount;
+                transactions++;
+            }
+        }
+
+        if (transactions === 0) {
+            payoutList.innerHTML = "Everyone broke exactly even. No payouts needed.";
+        }
+
+        switchSection('payout-section');
+    }
+</script>
+</body>
+</html>
