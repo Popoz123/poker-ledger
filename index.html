@@ -149,6 +149,7 @@
     <div id="payout-section" class="section">
         <h2>5. Final Payouts</h2>
         <div id="payout-list" style="font-size: 1.2em; text-align: center; line-height: 1.8;"></div>
+        <button onclick="exportSpreadsheet()">Export Spreadsheet</button>
         <button class="secondary-btn" onclick="location.reload()" style="margin-top: 30px;">Start New Session</button>
     </div>
 </div>
@@ -181,6 +182,7 @@
 
 <div id="notification" class="notification" role="status"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
     let players = {};
     let moneyPerChip = 0;
@@ -188,6 +190,17 @@
     let diffChips = 0;
     let activeRebuyPlayer = null;
     let activeCashoutPlayer = null;
+    let sessionRecorded = false;
+
+    const sessionHistoryKey = 'holdemLedgerSessions';
+
+    function getSessionHistory() {
+        try {
+            return JSON.parse(localStorage.getItem(sessionHistoryKey) || '[]');
+        } catch (error) {
+            return [];
+        }
+    }
 
     function switchSection(sectionId) {
         document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
@@ -475,6 +488,23 @@
             else if (balance < -0.01) losers[name] = -balance;
         });
 
+        if (!sessionRecorded) {
+            const session = {
+                date: new Date().toISOString(),
+                players: playerNames.map(name => ({
+                    name,
+                    invested: players[name].invested,
+                    finalStack: players[name].cashedOut,
+                    earlyCashout: players[name].earlyCashout,
+                    profitLoss: (players[name].cashedOut + players[name].earlyCashout) - players[name].invested
+                }))
+            };
+            const history = getSessionHistory();
+            history.push(session);
+            localStorage.setItem(sessionHistoryKey, JSON.stringify(history));
+            sessionRecorded = true;
+        }
+
         const payoutList = document.getElementById('payout-list');
         payoutList.innerHTML = '';
         let transactions = 0;
@@ -498,6 +528,48 @@
         }
 
         switchSection('payout-section');
+    }
+
+    function exportSpreadsheet() {
+        const history = getSessionHistory();
+        if (history.length === 0) {
+            alert('There are no completed sessions to export yet.');
+            return;
+        }
+
+        if (typeof XLSX === 'undefined') {
+            alert('The spreadsheet exporter could not be loaded. Check your internet connection and try again.');
+            return;
+        }
+
+        const workbook = XLSX.utils.book_new();
+        const playerRows = {};
+
+        history.forEach(session => {
+            session.players.forEach(player => {
+                if (!playerRows[player.name]) playerRows[player.name] = [];
+                playerRows[player.name].push({
+                    Session: new Date(session.date).toLocaleString(),
+                    'Profit / Loss ($)': Number(player.profitLoss.toFixed(2)),
+                    'Invested ($)': Number(player.invested.toFixed(2)),
+                    'Final Stack Value ($)': Number(player.finalStack.toFixed(2)),
+                    'Early Cashout Credit ($)': Number(player.earlyCashout.toFixed(2))
+                });
+            });
+        });
+
+        Object.keys(playerRows).sort().forEach(name => {
+            let sheetName = name.replace(/[\\/*?:[\]]/g, '').trim() || 'Player';
+            sheetName = sheetName.substring(0, 31);
+            let suffix = 2;
+            while (workbook.SheetNames.includes(sheetName)) {
+                const suffixText = ` (${suffix++})`;
+                sheetName = `${name.substring(0, 31 - suffixText.length)}${suffixText}`;
+            }
+            XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(playerRows[name]), sheetName);
+        });
+
+        XLSX.writeFile(workbook, 'holdem-ledger-results.xlsx');
     }
 </script>
 </body>
